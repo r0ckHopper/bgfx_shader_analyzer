@@ -7,11 +7,14 @@ operators: []const Operator,
 types: []const Type,
 variables: []const Variable,
 functions: []const Function,
+builtins: Builtins,
+macros: []const Macro,
+bgfx_functions: []const BgfxFunction,
 
 pub const Keyword = struct {
     name: []const u8,
     kind: Kind,
-    pub const Kind = enum { glsl, vulkan, reserved };
+    pub const Kind = enum { glsl, vulkan, reserved, bgfx };
 };
 
 pub const Operator = struct {
@@ -24,7 +27,37 @@ pub const Operator = struct {
 
 pub const Type = struct {
     name: []const u8,
-    description: []const []const u8,
+    description: Description,
+
+    pub const Description = []const []const u8;
+
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
+        const val = try std.json.Value.jsonParse(allocator, source, options);
+        const obj = val.object;
+        const name_val = obj.get("name") orelse return error.MissingField;
+        const desc_val = obj.get("description") orelse return error.MissingField;
+
+        const desc: []const []const u8 = switch (desc_val) {
+            .string => |s| blk: {
+                const slice = try allocator.alloc([]const u8, 1);
+                slice[0] = s;
+                break :blk slice;
+            },
+            .array => |arr| blk: {
+                const slice = try allocator.alloc([]const u8, arr.items.len);
+                for (arr.items, 0..) |item, i| {
+                    slice[i] = item.string;
+                }
+                break :blk slice;
+            },
+            else => return error.UnexpectedToken,
+        };
+
+        return .{
+            .name = name_val.string,
+            .description = desc,
+        };
+    }
 };
 
 pub const Variable = struct {
@@ -53,7 +86,47 @@ pub const Function = struct {
     };
 };
 
-const compressed_bytes = @embedFile("glsl_spec.json.zlib");
+pub const Builtins = struct {
+    uniforms: []const Uniform,
+    attributes: []const Attribute,
+    varying_semantics: []const []const u8,
+};
+
+pub const Uniform = struct {
+    name: []const u8,
+    type: []const u8,
+    description: ?[]const u8 = null,
+};
+
+pub const Attribute = struct {
+    name: []const u8,
+    type: []const u8,
+    semantic: []const u8,
+};
+
+pub const Macro = struct {
+    name: []const u8,
+    params: []const []const u8,
+    kind: MacroKind,
+    glsl_type: ?[]const u8 = null,
+    description: ?[]const u8 = null,
+
+    pub const MacroKind = enum { sampler, thread_declaration, compute_image, compute_buffer, flow_control, utility };
+};
+
+pub const BgfxFunction = struct {
+    name: []const u8,
+    return_type: []const u8,
+    parameters: []const BgfxParameter,
+    description: ?[]const u8 = null,
+
+    pub const BgfxParameter = struct {
+        name: []const u8,
+        type: []const u8,
+    };
+};
+
+const compressed_bytes = @embedFile("bgfx_spec.json.zlib");
 
 pub fn load(allocator: std.mem.Allocator) !@This() {
     var compressed_stream = std.io.fixedBufferStream(compressed_bytes);
@@ -68,7 +141,7 @@ pub fn load(allocator: std.mem.Allocator) !@This() {
 
     return std.json.parseFromTokenSourceLeaky(@This(), allocator, &scanner, .{}) catch |err| {
         std.log.err(
-            "could not parse GLSL spec: {}:{}: {s}",
+            "could not parse bgfx spec: {}:{}: {s}",
             .{ diagnostic.getLine(), diagnostic.getColumn(), @errorName(err) },
         );
         std.log.err("{?s}", .{util.getJsonErrorContext(diagnostic, bytes)});

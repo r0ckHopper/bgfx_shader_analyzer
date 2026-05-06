@@ -150,6 +150,7 @@ fn builtinCompletions(arena: std.mem.Allocator, spec: *const Spec) ![]lsp.Comple
                     .glsl => "Available in standard GLSL.",
                     .vulkan => "Only available when targeting Vulkan.",
                     .reserved => "Reserved for future use.",
+                    .bgfx => "bgfx shader language extension.",
                 },
             },
         });

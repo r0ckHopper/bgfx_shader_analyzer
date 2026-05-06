@@ -95,8 +95,8 @@ fn addExecutable(b: *std.Build, options: struct {
 fn attachImports(mod: *std.Build.Module) !void {
     const b = mod.owner;
 
-    const compressed_spec = try CompressStep.create(b, "spec.json.zlib", b.path("spec/spec.json"));
-    mod.addAnonymousImport("glsl_spec.json.zlib", .{ .root_source_file = compressed_spec.getOutput() });
+    const compressed_spec = try CompressStep.create(b, "bgfx_spec.json.zlib", b.path("spec/bgfx_spec.json"));
+    mod.addAnonymousImport("bgfx_spec.json.zlib", .{ .root_source_file = compressed_spec.getOutput() });
 
     const options = b.addOptions();
     const build_root_path = try std.fs.path.resolve(
