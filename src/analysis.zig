@@ -6,6 +6,7 @@ const Node = parse.Node;
 const Workspace = @import("Workspace.zig");
 const Document = @import("Document.zig");
 const syntax = @import("syntax.zig");
+const BgfxMacros = @import("BgfxMacros.zig");
 
 pub const Reference = struct {
     /// The document in which the reference was found.
@@ -580,11 +581,99 @@ fn registerLocalDeclaration(
 fn collectGlobalSymbols(scope: *Scope, document: *Document) !void {
     const parsed = try document.parseTree();
     const tree = parsed.tree;
+    const source = document.source();
 
     const children = tree.children(tree.root);
     for (children.start..children.end) |child| {
-        const global = syntax.ExtractorMixin(syntax.ExternalDeclaration).tryExtract(tree, @intCast(child)) orelse continue;
-        try collectDeclarationSymbols(scope, document, tree, global, .{});
+        const child_idx: u32 = @intCast(child);
+
+        if (syntax.ExtractorMixin(syntax.ExternalDeclaration).tryExtract(tree, child_idx)) |global| {
+            try collectDeclarationSymbols(scope, document, tree, global, .{});
+            continue;
+        }
+
+        const tag = tree.tag(child_idx);
+        if (tag == .bgfx_input or tag == .bgfx_output) {
+            try collectBgfxDirectiveSymbols(scope, document, tree, source, child_idx);
+            continue;
+        }
+
+        if (tag == .call) {
+            try collectBgfxMacroCall(scope, document, tree, source, child_idx);
+            continue;
+        }
+    }
+}
+
+fn collectBgfxDirectiveSymbols(
+    scope: *Scope,
+    document: *Document,
+    tree: Tree,
+    source: []const u8,
+    node: u32,
+) !void {
+    const children = tree.children(node);
+    for (children.start..children.end) |child| {
+        const child_idx: u32 = @intCast(child);
+        if (tree.tag(child_idx) == .identifier) {
+            const token = tree.token(child_idx);
+            const name_text = source[token.start..token.end];
+            try scope.add(name_text, .{
+                .document = document,
+                .node = child_idx,
+                .parent_declaration = node,
+            });
+        }
+    }
+}
+
+fn collectBgfxMacroCall(
+    scope: *Scope,
+    document: *Document,
+    tree: Tree,
+    source: []const u8,
+    node: u32,
+) !void {
+    const children = tree.children(node);
+
+    var callee_name: ?[]const u8 = null;
+    for (children.start..children.end) |child| {
+        const child_idx: u32 = @intCast(child);
+        if (tree.tag(child_idx) == .identifier) {
+            const token = tree.token(child_idx);
+            callee_name = source[token.start..token.end];
+            break;
+        }
+    }
+
+    const macro_name = callee_name orelse return;
+    const macro = BgfxMacros.resolveMacro(macro_name) orelse return;
+
+    switch (macro.kind) {
+        .sampler_declaration, .image_declaration, .buffer_declaration => {},
+        else => return,
+    }
+
+    var past_open_paren = false;
+    for (children.start..children.end) |child| {
+        const child_idx: u32 = @intCast(child);
+        const child_tag = tree.tag(child_idx);
+
+        if (child_tag == .@"(") {
+            past_open_paren = true;
+            continue;
+        }
+
+        if (past_open_paren and child_tag == .identifier) {
+            const token = tree.token(child_idx);
+            const var_name = source[token.start..token.end];
+            try scope.add(var_name, .{
+                .document = document,
+                .node = child_idx,
+                .parent_declaration = node,
+            });
+            return;
+        }
     }
 }
 
