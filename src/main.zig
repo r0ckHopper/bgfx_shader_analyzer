@@ -859,4 +859,6 @@ test {
     std.testing.refAllDeclsRecursive(@import("format.zig"));
     std.testing.refAllDeclsRecursive(@import("analysis.zig"));
     std.testing.refAllDeclsRecursive(@import("syntax.zig"));
+    std.testing.refAllDeclsRecursive(@import("VaryingDef.zig"));
+    std.testing.refAllDeclsRecursive(@import("BgfxMacros.zig"));
 }

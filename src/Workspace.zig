@@ -188,6 +188,51 @@ fn builtinCompletions(arena: std.mem.Allocator, spec: *const Spec) ![]lsp.Comple
         });
     }
 
+    for (spec.builtins.uniforms) |uniform| {
+        var sig = std.ArrayList(u8).init(arena);
+        try sig.writer().print("uniform {s} {s}", .{ uniform.type, uniform.name });
+        try completions.append(.{
+            .label = uniform.name,
+            .kind = .variable,
+            .detail = sig.items,
+            .documentation = if (uniform.description) |desc| lsp.MarkupContent{ .kind = .markdown, .value = desc } else null,
+        });
+    }
+
+    for (spec.macros) |macro| {
+        var detail = std.ArrayList(u8).init(arena);
+        if (macro.params.len > 0) {
+            var i: usize = 1;
+            for (macro.params) |param| {
+                if (i > 1) try detail.appendSlice(", ");
+                try detail.writer().print("${{{d}:{s}}}", .{ i, param });
+                i += 1;
+            }
+        }
+        try completions.append(.{
+            .label = macro.name,
+            .kind = .function,
+            .detail = detail.items,
+            .documentation = if (macro.description) |desc| lsp.MarkupContent{ .kind = .markdown, .value = desc } else null,
+        });
+    }
+
+    for (spec.bgfx_functions) |func| {
+        var sig = std.ArrayList(u8).init(arena);
+        try sig.writer().print("{s} {s}(", .{ func.return_type, func.name });
+        for (func.parameters, 0..) |param, i| {
+            if (i != 0) try sig.appendSlice(", ");
+            try sig.writer().print("{s} {s}", .{ param.type, param.name });
+        }
+        try sig.appendSlice(")");
+        try completions.append(.{
+            .label = func.name,
+            .kind = .function,
+            .detail = sig.items,
+            .documentation = if (func.description) |desc| lsp.MarkupContent{ .kind = .markdown, .value = desc } else null,
+        });
+    }
+
     return completions.toOwnedSlice();
 }
 

@@ -334,6 +334,15 @@ fn formatNode(tree: parse.Tree, current: usize, writer: anytype) !void {
             }
         },
 
+        .bgfx_input, .bgfx_output => {
+            const children = tree.children(current);
+            for (children.start..children.end) |child| {
+                if (child != children.start) writer.writeSpace();
+                try formatNode(tree, child, writer);
+            }
+            writer.line_breaks = .{ .min = 1, .max = 1 };
+        },
+
         // emit tokens separated by spaces
         inline else => |tag| {
             const operators = comptime parse.assignment_operators.unionWith(parse.infix_operators);
