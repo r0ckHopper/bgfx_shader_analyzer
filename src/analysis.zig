@@ -1089,6 +1089,55 @@ fn findCursors(document: *Document) !std.StringArrayHashMap(Cursor) {
     return cursors;
 }
 
+test "parse and analyze bgfx shader" {
+    const source =
+        \\$input a_position, a_color0;
+        \\
+        \\SAMPLER2D(s_tex, 0);
+        \\
+        \\void main()
+        \\{
+        \\    gl_FragColor = texture2D(s_tex, vec2(0.0));
+        \\}
+    ;
+
+    var workspace = try Workspace.init(std.testing.allocator);
+    defer workspace.deinit();
+
+    const document = try workspace.getOrCreateDocument(.{ .uri = "file://test.sc", .version = 0 });
+    try document.replaceAll(source);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const parsed = try document.parseTree();
+    const tree = parsed.tree;
+
+    var func_node: ?u32 = null;
+    const root_children = tree.children(tree.root);
+    for (root_children.start..root_children.end) |child| {
+        if (tree.tag(@intCast(child)) == .function_declaration) {
+            func_node = @intCast(child);
+            break;
+        }
+    }
+
+    try std.testing.expect(func_node != null);
+
+    var symbols = std.ArrayList(Reference).init(arena.allocator());
+    try visibleSymbols(arena.allocator(), document, func_node.?, &symbols);
+
+    var found_s_tex = false;
+    var found_input = false;
+    for (symbols.items) |sym| {
+        const n = sym.name();
+        if (std.mem.eql(u8, n, "s_tex")) found_s_tex = true;
+        if (std.mem.eql(u8, n, "a_position")) found_input = true;
+    }
+    try std.testing.expect(found_input);
+    try std.testing.expect(found_s_tex);
+}
+
 test {
     std.testing.refAllDeclsRecursive(@This());
 }

@@ -466,6 +466,14 @@ pub const Dispatch = struct {
         const params = try parseParams(InitializeParams, state, request);
         defer params.deinit();
 
+        // TODO: Parse initializationOptions for bgfx configuration:
+        //   - includePaths: []const []const u8 — extra bgfx include directories
+        //   - targetPlatform: enum { glsl, hlsl, metal, spirv } — target shader platform
+        //   - varyingDefPath: ?[]const u8 — path to varying.def.sc for $input/$output type resolution
+        //   - glslVersion: u32 — GLSL version target (default: 430)
+        // These would be read from request.params["initializationOptions"]["bgfx"]
+        // and stored on the State struct for use by analysis/formatting.
+
         try state.success(request.id, .{
             .capabilities = .{
                 .completionProvider = .{
