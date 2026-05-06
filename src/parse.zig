@@ -628,8 +628,13 @@ pub fn parseFile(p: *Parser) void {
 fn parseBgfxInput(p: *Parser) void {
     const m = p.open();
     p.advance();
-    while (p.at(.identifier) or p.at(.@",")) {
+    while (p.at(.identifier)) {
         p.advance();
+        if (p.at(.@",")) {
+            p.advance();
+        } else {
+            break;
+        }
     }
     p.close(m, .bgfx_input);
 }
@@ -637,8 +642,13 @@ fn parseBgfxInput(p: *Parser) void {
 fn parseBgfxOutput(p: *Parser) void {
     const m = p.open();
     p.advance();
-    while (p.at(.identifier) or p.at(.@",")) {
+    while (p.at(.identifier)) {
         p.advance();
+        if (p.at(.@",")) {
+            p.advance();
+        } else {
+            break;
+        }
     }
     p.close(m, .bgfx_output);
 }
@@ -1986,6 +1996,68 @@ fn expectParsesOkay(source: []const u8) !void {
             return error.FoundInvalidSyntaxNode;
         }
     }
+}
+
+test "parse bgfx vertex shader" {
+    const source =
+        \\$input a_position, a_color0, a_texcoord0;
+        \\
+        \\$output v_color0, v_texcoord0;
+        \\
+        \\void main()
+        \\{
+        \\    gl_Position = vec4(a_position, 1.0);
+        \\}
+    ;
+    var diagnostics = std.ArrayList(Diagnostic).init(std.testing.allocator);
+    defer diagnostics.deinit();
+    var ignored = std.ArrayList(Span).init(std.testing.allocator);
+    defer ignored.deinit();
+
+    var tree = try parse(std.testing.allocator, source, .{
+        .ignored = &ignored,
+        .diagnostics = &diagnostics,
+    });
+    defer tree.deinit(std.testing.allocator);
+
+    const root_children = tree.children(tree.root);
+
+    var found_input = false;
+    var found_output = false;
+    var found_func = false;
+    for (root_children.start..root_children.end) |child| {
+        switch (tree.tag(@intCast(child))) {
+            .bgfx_input => found_input = true,
+            .bgfx_output => found_output = true,
+            .function_declaration => found_func = true,
+            else => {},
+        }
+    }
+    try std.testing.expect(found_input);
+    try std.testing.expect(found_output);
+    try std.testing.expect(found_func);
+}
+
+test "parse bgfx compute shader with NUM_THREADS" {
+    const source =
+        \\NUM_THREADS(8, 8, 1);
+        \\
+        \\void main()
+        \\{
+        \\}
+    ;
+    var diagnostics = std.ArrayList(Diagnostic).init(std.testing.allocator);
+    defer diagnostics.deinit();
+    var ignored = std.ArrayList(Span).init(std.testing.allocator);
+    defer ignored.deinit();
+
+    var tree = try parse(std.testing.allocator, source, .{
+        .ignored = &ignored,
+        .diagnostics = &diagnostics,
+    });
+    defer tree.deinit(std.testing.allocator);
+
+    try std.testing.expect(diagnostics.items.len == 0);
 }
 
 test {
