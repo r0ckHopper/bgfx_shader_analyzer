@@ -22,13 +22,17 @@ pub fn build(b: *std.Build) !void {
 
     // Tests
     {
-        const unit_tests = b.addTest(.{
-            .name = "unit-tests",
+        const test_mod = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
         });
-        try attachModules(unit_tests);
+        try attachImports(test_mod);
+
+        const unit_tests = b.addTest(.{
+            .name = "unit-tests",
+            .root_module = test_mod,
+        });
 
         if (b.option(bool, "install-tests", "Install the unit tests in the `bin` folder") orelse false) {
             b.installArtifact(unit_tests);
@@ -73,23 +77,26 @@ fn addExecutable(b: *std.Build, options: struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 }) !*std.Build.Step.Compile {
-    const exe = b.addExecutable(.{
-        .name = "glsl_analyzer",
+    const mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = options.target,
         .optimize = options.optimize,
+        .link_libc = true,
     });
-    try attachModules(exe);
+    try attachImports(mod);
+
+    const exe = b.addExecutable(.{
+        .name = "bgfx_shader_analyzer",
+        .root_module = mod,
+    });
     return exe;
 }
 
-fn attachModules(step: *std.Build.Step.Compile) !void {
-    const b = step.step.owner;
-
-    step.linkLibC();
+fn attachImports(mod: *std.Build.Module) !void {
+    const b = mod.owner;
 
     const compressed_spec = try CompressStep.create(b, "spec.json.zlib", b.path("spec/spec.json"));
-    step.root_module.addAnonymousImport("glsl_spec.json.zlib", .{ .root_source_file = compressed_spec.getOutput() });
+    mod.addAnonymousImport("glsl_spec.json.zlib", .{ .root_source_file = compressed_spec.getOutput() });
 
     const options = b.addOptions();
     const build_root_path = try std.fs.path.resolve(
@@ -98,7 +105,7 @@ fn attachModules(step: *std.Build.Step.Compile) !void {
     );
     options.addOption([]const u8, "build_root", build_root_path);
     options.addOption([]const u8, "version", b.run(&.{ "git", "describe", "--tags", "--always" }));
-    step.root_module.addOptions("build_options", options);
+    mod.addOptions("build_options", options);
 }
 
 const CompressStep = struct {
@@ -155,13 +162,14 @@ const CompressStep = struct {
         };
         defer output_file.close();
 
-        var output_buffered = std.io.bufferedWriter(output_file.writer());
+        var list = std.ArrayList(u8).init(b.allocator);
+        defer list.deinit();
         {
-            var compress_stream = try std.compress.zlib.compressor(output_buffered.writer(), .{});
+            var compress_stream = try std.compress.zlib.compressor(list.writer(), .{});
             try compress_stream.writer().writeAll(input_contents);
             try compress_stream.finish();
         }
-        try output_buffered.flush();
+        try output_file.writeAll(list.items);
 
         try step.writeManifest(&man);
     }

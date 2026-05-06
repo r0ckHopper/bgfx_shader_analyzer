@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const NAME = "glsl_analyzer";
+pub const NAME = "bgfx_shader_analyzer";
 
 pub const Arguments = struct {
     version: bool = false,
