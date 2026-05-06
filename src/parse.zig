@@ -145,6 +145,11 @@ pub const Tag = enum(u8) {
     @"++",
     @"--",
 
+    dollar_input,
+    dollar_output,
+    dollar_raw,
+    dollar_directive,
+
     /// KEEP THIS RIGHT AFTER THE TOKENS.
     /// An invalid syntax tree.
     invalid,
@@ -190,6 +195,9 @@ pub const Tag = enum(u8) {
 
     case_label,
     default_label,
+
+    bgfx_input,
+    bgfx_output,
 
     file,
 
@@ -601,7 +609,13 @@ pub fn parseFile(p: *Parser) void {
     const m = p.open();
 
     while (!p.eof()) {
-        if (p.atAny(external_declaration_first)) {
+        if (p.at(.dollar_input)) {
+            parseBgfxInput(p);
+        } else if (p.at(.dollar_output)) {
+            parseBgfxOutput(p);
+        } else if (p.at(.dollar_raw)) {
+            p.advance();
+        } else if (p.atAny(external_declaration_first)) {
             externalDeclaration(p);
         } else {
             p.advanceWithError("expected a declaration");
@@ -609,6 +623,24 @@ pub fn parseFile(p: *Parser) void {
     }
 
     p.close(m, .file);
+}
+
+fn parseBgfxInput(p: *Parser) void {
+    const m = p.open();
+    p.advance();
+    while (p.at(.identifier) or p.at(.@",")) {
+        p.advance();
+    }
+    p.close(m, .bgfx_input);
+}
+
+fn parseBgfxOutput(p: *Parser) void {
+    const m = p.open();
+    p.advance();
+    while (p.at(.identifier) or p.at(.@",")) {
+        p.advance();
+    }
+    p.close(m, .bgfx_output);
 }
 
 const external_declaration_first = TokenSet.initMany(&.{.@";"})
@@ -1506,6 +1538,21 @@ pub const Tokenizer = struct {
                 },
                 '=' => return self.token(.@">=", i + 2),
                 else => return self.token(.@">", i + 1),
+            },
+
+            '$' => {
+                i += 1;
+                while (i < N and isIdentifierChar(text[i])) i += 1;
+                const ident = self.tokenSpan(i);
+                const tag: Tag = if (std.mem.eql(u8, self.source[ident.start..ident.end], "$input"))
+                    .dollar_input
+                else if (std.mem.eql(u8, self.source[ident.start..ident.end], "$output"))
+                    .dollar_output
+                else if (std.mem.eql(u8, self.source[ident.start..ident.end], "$raw"))
+                    .dollar_raw
+                else
+                    .dollar_directive;
+                return .{ .tag = tag, .span = ident };
             },
 
             '#' => {
