@@ -14,8 +14,12 @@ Based on [glsl_analyzer](https://github.com/nolanderc/glsl_analyzer) with bgfx-s
 ## Features
 
 - **Completion** for bgfx built-in uniforms, macros, and GLSL functions/types
+  
+https://github.com/user-attachments/assets/314c29ea-dcf5-4992-bd74-c2883b1bed98
 - **Go-to-definition** for `$input`/`$output` symbols and `SAMPLER2D`-declared variables
 - **Hover documentation** for bgfx functions and built-ins
+
+https://github.com/user-attachments/assets/788bd8d0-a0ae-49f5-a885-e78e38733584
 - **Formatting** that preserves `$input`/`$output` structure
 - **Parsing** of `$input`, `$output`, and `$raw` directives
 
