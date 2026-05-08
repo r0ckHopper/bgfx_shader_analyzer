@@ -26,6 +26,10 @@ https://github.com/user-attachments/assets/788bd8d0-a0ae-49f5-a885-e78e38733584
 
 ## Installation
 
+### Download Binary (Recommended)
+
+Download the latest release for your platform from [Releases](https://github.com/r0ckHopper/bgfx_shader_analyzer/releases):
+
 ### Building from Source
 
 Requires [Zig](https://ziglang.org/) 0.14.0.
@@ -64,7 +68,6 @@ vim.lsp.config.bgfx_shader_analyzer = {
 }
 vim.lsp.enable('bgfx_shader_analyzer')
 ```
-
 
 ## Known Limitations
 
