@@ -83,6 +83,57 @@ BGFX_BUILTINS = {
     ],
 }
 
+BGFX_VARIABLES = [
+    {
+        "modifiers": "out",
+        "type": "vec4",
+        "name": "gl_FragColor",
+        "description": [
+            "Fragment shader color output. Although deprecated in GLSL 130+, bgfx's `shaderc` cross-compiler expects `gl_FragColor` as the canonical fragment output and translates it to the appropriate target (e.g., `SV_Target` in HLSL, `[[color(0)]]` in Metal).",
+            "Use `gl_FragColor` in fragment shaders to write the final color for the default render target."
+        ],
+    },
+    {
+        "modifiers": "out",
+        "type": "vec4",
+        "name": "gl_FragData",
+        "description": [
+            "Fragment shader multiple render target (MRT) output array. Although deprecated in GLSL 130+, bgfx's `shaderc` cross-compiler translates `gl_FragData[n]` to the appropriate per-target output.",
+            "Use `gl_FragData[0]` for the first render target, `gl_FragData[1]` for the second, etc."
+        ],
+    },
+    {
+        "modifiers": "out",
+        "type": "gl_PerVertex",
+        "name": "gl_PerVertex",
+        "description": [
+            "Output interface block containing per-vertex outputs: `gl_Position` (vec4), `gl_PointSize` (float), `gl_ClipDistance` (float[]), `gl_CullDistance` (float[]).",
+            "Used in geometry and tessellation shaders to explicitly redeclare the per-vertex output block.",
+            "```glsl\nout gl_PerVertex {\n    vec4 gl_Position;\n    float gl_PointSize;\n    float gl_ClipDistance[];\n};\n```"
+        ],
+    },
+    {
+        "modifiers": "in",
+        "type": "gl_PerVertex",
+        "name": "gl_in",
+        "description": [
+            "Input array of per-vertex data from the previous shader stage. Each element contains `gl_Position`, `gl_PointSize`, `gl_ClipDistance`, and `gl_CullDistance`.",
+            "Available in geometry and tessellation shaders. The array size is determined by the input primitive type.",
+            "```glsl\nin gl_PerVertex gl_in[];\n```"
+        ],
+    },
+    {
+        "modifiers": "out",
+        "type": "gl_PerVertex",
+        "name": "gl_out",
+        "description": [
+            "Output array of per-vertex data to the next shader stage. Each element contains `gl_Position`, `gl_PointSize`, `gl_ClipDistance`, and `gl_CullDistance`.",
+            "Available in tessellation control shaders.",
+            "```glsl\nout gl_PerVertex gl_out[];\n```"
+        ],
+    },
+]
+
 BGFX_MACROS = [
     {"name": "SAMPLER2D", "params": ["_name", "_reg"], "kind": "sampler", "glsl_type": "sampler2D", "description": "Declare a 2D texture sampler"},
     {"name": "SAMPLER2DMS", "params": ["_name", "_reg"], "kind": "sampler", "glsl_type": "sampler2DMS", "description": "Declare a multisampled 2D texture sampler"},
@@ -218,6 +269,7 @@ def main():
 
     spec["keywords"].extend(BGFX_KEYWORDS)
     spec["types"].extend(BGFX_TYPES)
+    spec["variables"].extend(BGFX_VARIABLES)
     spec["builtins"] = BGFX_BUILTINS
     spec["macros"] = BGFX_MACROS
     spec["bgfx_functions"] = BGFX_FUNCTIONS
@@ -232,6 +284,7 @@ def main():
     with open(BGFX_SPEC_JSON, "r") as f:
         verify = json.load(f)
     print(f"Verified: {len(verify['keywords'])} keywords, {len(verify['types'])} types, "
+          f"{len(verify['variables'])} variables, "
           f"{len(verify['functions'])} GLSL functions, {len(verify['bgfx_functions'])} bgfx functions, "
           f"{len(verify['macros'])} macros, {len(verify['builtins']['uniforms'])} uniforms, "
           f"{len(verify['builtins']['attributes'])} attributes")

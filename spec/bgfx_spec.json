@@ -4813,6 +4813,54 @@
       "extensions": [
         "GL_NV_ray_tracing"
       ]
+    },
+    {
+      "modifiers": "out",
+      "type": "vec4",
+      "name": "gl_FragColor",
+      "description": [
+        "Fragment shader color output. Although deprecated in GLSL 130+, bgfx's `shaderc` cross-compiler expects `gl_FragColor` as the canonical fragment output and translates it to the appropriate target (e.g., `SV_Target` in HLSL, `[[color(0)]]` in Metal).",
+        "Use `gl_FragColor` in fragment shaders to write the final color for the default render target."
+      ]
+    },
+    {
+      "modifiers": "out",
+      "type": "vec4",
+      "name": "gl_FragData",
+      "description": [
+        "Fragment shader multiple render target (MRT) output array. Although deprecated in GLSL 130+, bgfx's `shaderc` cross-compiler translates `gl_FragData[n]` to the appropriate per-target output.",
+        "Use `gl_FragData[0]` for the first render target, `gl_FragData[1]` for the second, etc."
+      ]
+    },
+    {
+      "modifiers": "out",
+      "type": "gl_PerVertex",
+      "name": "gl_PerVertex",
+      "description": [
+        "Output interface block containing per-vertex outputs: `gl_Position` (vec4), `gl_PointSize` (float), `gl_ClipDistance` (float[]), `gl_CullDistance` (float[]).",
+        "Used in geometry and tessellation shaders to explicitly redeclare the per-vertex output block.",
+        "```glsl\nout gl_PerVertex {\n    vec4 gl_Position;\n    float gl_PointSize;\n    float gl_ClipDistance[];\n};\n```"
+      ]
+    },
+    {
+      "modifiers": "in",
+      "type": "gl_PerVertex",
+      "name": "gl_in",
+      "description": [
+        "Input array of per-vertex data from the previous shader stage. Each element contains `gl_Position`, `gl_PointSize`, `gl_ClipDistance`, and `gl_CullDistance`.",
+        "Available in geometry and tessellation shaders. The array size is determined by the input primitive type.",
+        "```glsl\nin gl_PerVertex gl_in[];\n```"
+      ]
+    },
+    {
+      "modifiers": "out",
+      "type": "gl_PerVertex",
+      "name": "gl_out",
+      "description": [
+        "Output array of per-vertex data to the next shader stage. Each element contains `gl_Position`, `gl_PointSize`, `gl_ClipDistance`, and `gl_CullDistance`.",
+        "Available in tessellation control shaders.",
+        "```glsl\nout gl_PerVertex gl_out[];\n```"
+      ]
     }
   ],
   "functions": [
