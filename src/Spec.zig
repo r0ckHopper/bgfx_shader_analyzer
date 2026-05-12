@@ -89,7 +89,13 @@ pub const Function = struct {
 pub const Builtins = struct {
     uniforms: []const Uniform,
     attributes: []const Attribute,
-    varying_semantics: []const []const u8,
+    varying_semantics: []const VaryingSemantic,
+};
+
+pub const VaryingSemantic = struct {
+    name: []const u8,
+    description: ?[]const u8 = null,
+    type_hint: ?[]const u8 = null,
 };
 
 pub const Uniform = struct {
@@ -100,7 +106,7 @@ pub const Uniform = struct {
 
 pub const Attribute = struct {
     name: []const u8,
-    type: []const u8,
+    type_hint: []const u8,
     semantic: []const u8,
 };
 

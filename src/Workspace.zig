@@ -233,6 +233,21 @@ fn builtinCompletions(arena: std.mem.Allocator, spec: *const Spec) ![]lsp.Comple
         });
     }
 
+    for (spec.builtins.varying_semantics) |semantic| {
+        var sig = std.ArrayList(u8).init(arena);
+        if (semantic.type_hint) |hint| {
+            try sig.writer().print("{s} : {s}", .{ hint, semantic.name });
+        } else {
+            try sig.appendSlice(semantic.name);
+        }
+        try completions.append(.{
+            .label = semantic.name,
+            .kind = .enum_member,
+            .detail = sig.items,
+            .documentation = if (semantic.description) |desc| lsp.MarkupContent{ .kind = .markdown, .value = desc } else null,
+        });
+    }
+
     return completions.toOwnedSlice();
 }
 
