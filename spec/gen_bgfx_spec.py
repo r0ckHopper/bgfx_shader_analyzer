@@ -101,6 +101,22 @@ BGFX_BUILTINS = {
         {"name": "SV_TARGET6", "type_hint": "vec4", "description": "HLSL semantic: Render target 6 output."},
         {"name": "SV_TARGET7", "type_hint": "vec4", "description": "HLSL semantic: Render target 7 output."},
     ],
+    "varying_qualifiers": [
+        {"name": "lowp", "category": "precision", "description": "Low precision qualifier"},
+        {"name": "mediump", "category": "precision", "description": "Medium precision qualifier"},
+        {"name": "highp", "category": "precision", "description": "High precision qualifier"},
+        {"name": "flat", "category": "interpolation", "description": "No interpolation (flat shading)"},
+        {"name": "smooth", "category": "interpolation", "description": "Default perspective-correct interpolation"},
+        {"name": "noperspective", "category": "interpolation", "description": "Linear interpolation (no perspective correction)"},
+        {"name": "centroid", "category": "interpolation", "description": "Centroid-based interpolation for multisampling"},
+    ],
+    "varying_types": [
+        {"name": "float", "description": "32-bit floating point"},
+        {"name": "vec2", "description": "2-component floating point vector"},
+        {"name": "vec3", "description": "3-component floating point vector"},
+        {"name": "vec4", "description": "4-component floating point vector"},
+        {"name": "uvec4", "description": "4-component unsigned integer vector"},
+    ],
 }
 
 BGFX_VARIABLES = [
