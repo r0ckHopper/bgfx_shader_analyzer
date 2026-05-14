@@ -32,6 +32,16 @@ pub const VaryingDef = struct {
     pub fn deinit(self: VaryingDef, allocator: std.mem.Allocator) void {
         allocator.free(self.entries);
     }
+
+    pub fn buildLookup(allocator: std.mem.Allocator, entries: []const Entry) !std.StringHashMapUnmanaged(*const Entry) {
+        var map = std.StringHashMapUnmanaged(*const Entry){};
+        errdefer map.deinit(allocator);
+        for (entries) |*entry| {
+            const name = try allocator.dupe(u8, entry.name);
+            try map.put(allocator, name, entry);
+        }
+        return map;
+    }
 };
 
 const precision_keywords = [_][]const u8{ "lowp", "mediump", "highp" };
@@ -218,4 +228,35 @@ test "parse multiple lines" {
 
     try std.testing.expectEqualStrings("flat", result.entries[4].interpolation.?);
     try std.testing.expectEqualStrings("highp", result.entries[5].precision.?);
+}
+
+test "buildLookup from entries" {
+    const source =
+        \\vec3 a_position : POSITION;
+        \\vec4 v_color0 : COLOR0;
+        \\vec2 v_texcoord0 : TEXCOORD0;
+    ;
+    const result = try VaryingDef.parse(std.testing.allocator, source);
+    defer result.deinit(std.testing.allocator);
+
+    var lookup = try VaryingDef.buildLookup(std.testing.allocator, result.entries);
+    defer {
+        var it = lookup.keyIterator();
+        while (it.next()) |key| std.testing.allocator.free(key.*);
+        lookup.deinit(std.testing.allocator);
+    }
+
+    const pos_entry = lookup.get("a_position").?;
+    try std.testing.expectEqualStrings("vec3", pos_entry.type);
+    try std.testing.expectEqualStrings("POSITION", pos_entry.semantic);
+
+    const color_entry = lookup.get("v_color0").?;
+    try std.testing.expectEqualStrings("vec4", color_entry.type);
+    try std.testing.expectEqualStrings("COLOR0", color_entry.semantic);
+
+    const tc_entry = lookup.get("v_texcoord0").?;
+    try std.testing.expectEqualStrings("vec2", tc_entry.type);
+    try std.testing.expectEqualStrings("TEXCOORD0", tc_entry.semantic);
+
+    try std.testing.expect(lookup.get("nonexistent") == null);
 }

@@ -316,6 +316,7 @@ const State = struct {
     initialized: bool = false,
     parent_pid: ?c_int = null,
     workspace: Workspace,
+    varying_def_path: ?[]const u8 = null,
 
     pub fn deinit(self: *State) void {
         self.workspace.deinit();
@@ -414,6 +415,22 @@ const Diagnostic = struct {
     static: bool = true,
 };
 
+fn findVaryingDef(allocator: std.mem.Allocator, root_path: []const u8) ?[]const u8 {
+    var dir = std.fs.openDirAbsolute(root_path, .{ .iterate = true }) catch return null;
+    defer dir.close();
+
+    var walker = dir.walk(allocator) catch return null;
+    defer walker.deinit();
+
+    while (walker.next() catch null) |entry| {
+        if (entry.kind != .file) continue;
+        if (std.mem.eql(u8, entry.basename, "varying.def.sc")) {
+            return std.fs.path.join(allocator, &.{ root_path, entry.path }) catch null;
+        }
+    }
+    return null;
+}
+
 pub const Dispatch = struct {
     pub const methods = [_][]const u8{
         "initialize",
@@ -448,6 +465,7 @@ pub const Dispatch = struct {
 
     pub const InitializeParams = struct {
         processId: ?c_int = null,
+        rootUri: ?[]const u8 = null,
         clientInfo: ?struct {
             name: []const u8,
             version: ?[]const u8 = null,
@@ -495,6 +513,22 @@ pub const Dispatch = struct {
 
         state.initialized = true;
         state.parent_pid = state.parent_pid orelse params.value.processId;
+
+        if (params.value.rootUri) |root_uri| {
+            const root_path = util.pathFromUri(state.allocator, root_uri) catch null;
+            if (root_path) |rp| {
+                defer state.allocator.free(rp);
+                if (findVaryingDef(state.allocator, rp)) |found_path| {
+                    const load_result = state.workspace.loadVaryingDef(found_path);
+                    if (load_result) {
+                        state.varying_def_path = found_path;
+                        std.log.info("loaded varying.def.sc from: {s}", .{found_path});
+                    } else |_| {
+                        state.allocator.free(found_path);
+                    }
+                }
+            }
+        }
     }
 
     pub fn shutdown(state: *State, request: *Request) !void {
@@ -554,6 +588,19 @@ pub const Dispatch = struct {
             params.value.textDocument.uri,
             if (params.value.text) |text| text.len else null,
         });
+
+        if (state.varying_def_path) |stored_path| {
+            const saved_path = util.pathFromUri(state.allocator, params.value.textDocument.uri) catch null;
+            if (saved_path) |sp| {
+                defer state.allocator.free(sp);
+                if (std.mem.eql(u8, sp, stored_path)) {
+                    std.log.info("varying.def.sc saved, reloading", .{});
+                    state.workspace.loadVaryingDef(stored_path) catch |err| {
+                        std.log.err("failed to reload varying.def.sc: {s}", .{@errorName(err)});
+                    };
+                }
+            }
+        }
 
         return;
     }
@@ -658,7 +705,7 @@ pub const Dispatch = struct {
                     break :blk symbol.document.source()[span.start..span.end];
                 } else null;
 
-                try completions.append(.{
+                var completion: lsp.CompletionItem = .{
                     .label = symbol.name(),
                     .labelDetails = .{
                         .detail = type_signature,
@@ -677,7 +724,30 @@ pub const Dispatch = struct {
                             break :blk .variable;
                         },
                     },
-                });
+                };
+
+                if (type_signature == null and
+                    (parsed.tree.tag(symbol.parent_declaration) == .bgfx_input or
+                        parsed.tree.tag(symbol.parent_declaration) == .bgfx_output))
+                {
+                    const sym_name = symbol.name();
+                    if (state.workspace.getVaryingInfo(sym_name)) |vary_info| {
+                        const sig = try std.fmt.allocPrint(arena, "{s} {s} : {s}", .{
+                            vary_info.type,
+                            sym_name,
+                            vary_info.semantic,
+                        });
+                        completion.detail = sig;
+                        completion.labelDetails = .{ .detail = sig };
+                        if (vary_info.default_value) |dv| {
+                            completion.documentation = lsp.MarkupContent{
+                                .kind = .markdown,
+                                .value = try std.fmt.allocPrint(arena, "Default: `{s}`", .{dv}),
+                            };
+                        }
+                    }
+                }
+                try completions.append(completion);
             }
         }
 
@@ -726,7 +796,6 @@ pub const Dispatch = struct {
             .{ .ignore_current = false },
         );
 
-        // group completions by their documentation.
         var groups = std.StringArrayHashMap(std.ArrayListUnmanaged(*const lsp.CompletionItem))
             .init(symbol_arena.allocator());
         defer groups.deinit();

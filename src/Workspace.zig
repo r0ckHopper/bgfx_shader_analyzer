@@ -4,13 +4,25 @@ const lsp = @import("lsp.zig");
 const Spec = @import("Spec.zig");
 const parse = @import("parse.zig");
 pub const Document = @import("Document.zig");
+const VaryingDef = @import("VaryingDef.zig").VaryingDef;
 
 const Workspace = @This();
+
+pub const BgfxVaryingInfo = struct {
+    type: []const u8,
+    semantic: []const u8,
+    precision: ?[]const u8 = null,
+    interpolation: ?[]const u8 = null,
+    default_value: ?[]const u8 = null,
+};
 
 allocator: std.mem.Allocator,
 arena_state: std.heap.ArenaAllocator.State,
 spec: Spec,
 builtin_completions: []const lsp.CompletionItem,
+varying_lookup: std.StringHashMapUnmanaged(*const VaryingDef.Entry) = .{},
+varying_source: []const u8 = &.{},
+varying_entries: []const VaryingDef.Entry = &.{},
 
 /// Documents in the workspace, accessed by their path.
 documents: std.StringHashMapUnmanaged(*Document) = .{},
@@ -30,6 +42,41 @@ pub fn init(allocator: std.mem.Allocator) !@This() {
     };
 }
 
+pub fn loadVaryingDef(self: *@This(), path: []const u8) !void {
+    {
+        var it = self.varying_lookup.keyIterator();
+        while (it.next()) |key| self.allocator.free(key.*);
+        self.varying_lookup.deinit(self.allocator);
+    }
+    if (self.varying_entries.len > 0) self.allocator.free(self.varying_entries);
+    if (self.varying_source.len > 0) self.allocator.free(self.varying_source);
+    self.varying_lookup = .{};
+    self.varying_source = &.{};
+    self.varying_entries = &.{};
+
+    const file = try std.fs.openFileAbsolute(path, .{});
+    defer file.close();
+
+    const max_megabytes = 1;
+    const contents = try file.reader().readAllAlloc(self.allocator, max_megabytes << 20);
+
+    const varying_def = try VaryingDef.parse(self.allocator, contents);
+    self.varying_lookup = try VaryingDef.buildLookup(self.allocator, varying_def.entries);
+    self.varying_source = contents;
+    self.varying_entries = varying_def.entries;
+}
+
+pub fn getVaryingInfo(self: *Workspace, name: []const u8) ?BgfxVaryingInfo {
+    const entry = self.varying_lookup.get(name) orelse return null;
+    return .{
+        .type = entry.type,
+        .semantic = entry.semantic,
+        .precision = entry.precision,
+        .interpolation = entry.interpolation,
+        .default_value = entry.default_value,
+    };
+}
+
 pub fn deinit(self: *Workspace) void {
     var entries = self.documents.iterator();
     while (entries.next()) |entry| {
@@ -40,6 +87,13 @@ pub fn deinit(self: *Workspace) void {
         self.allocator.destroy(document);
     }
     self.documents.deinit(self.allocator);
+    {
+        var it = self.varying_lookup.keyIterator();
+        while (it.next()) |key| self.allocator.free(key.*);
+        self.varying_lookup.deinit(self.allocator);
+    }
+    if (self.varying_entries.len > 0) self.allocator.free(self.varying_entries);
+    if (self.varying_source.len > 0) self.allocator.free(self.varying_source);
     self.arena_state.promote(self.allocator).deinit();
 }
 

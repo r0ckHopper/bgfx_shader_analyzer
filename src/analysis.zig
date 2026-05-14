@@ -1138,6 +1138,32 @@ test "parse and analyze bgfx shader" {
     try std.testing.expect(found_s_tex);
 }
 
+test "varying.def.sc lookup from workspace" {
+    var workspace = try Workspace.init(std.testing.allocator);
+    defer workspace.deinit();
+
+    const varying_source = "vec3 a_position : POSITION;\nvec4 v_color0 : COLOR0;\n";
+
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    try tmp_dir.dir.writeFile(.{ .sub_path = "varying.def.sc", .data = varying_source });
+
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const tmp_path = try tmp_dir.dir.realpath("varying.def.sc", &buf);
+
+    try workspace.loadVaryingDef(tmp_path);
+
+    const pos_info = workspace.getVaryingInfo("a_position").?;
+    try std.testing.expectEqualStrings("vec3", pos_info.type);
+    try std.testing.expectEqualStrings("POSITION", pos_info.semantic);
+
+    const color_info = workspace.getVaryingInfo("v_color0").?;
+    try std.testing.expectEqualStrings("vec4", color_info.type);
+    try std.testing.expectEqualStrings("COLOR0", color_info.semantic);
+
+    try std.testing.expect(workspace.getVaryingInfo("nonexistent") == null);
+}
+
 test {
     std.testing.refAllDeclsRecursive(@This());
 }
