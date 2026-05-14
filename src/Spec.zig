@@ -90,12 +90,25 @@ pub const Builtins = struct {
     uniforms: []const Uniform,
     attributes: []const Attribute,
     varying_semantics: []const VaryingSemantic,
+    varying_qualifiers: []const VaryingQualifier,
+    varying_types: []const VaryingType,
 };
 
 pub const VaryingSemantic = struct {
     name: []const u8,
     description: ?[]const u8 = null,
     type_hint: ?[]const u8 = null,
+};
+
+pub const VaryingQualifier = struct {
+    name: []const u8,
+    category: []const u8,
+    description: ?[]const u8 = null,
+};
+
+pub const VaryingType = struct {
+    name: []const u8,
+    description: ?[]const u8 = null,
 };
 
 pub const Uniform = struct {
