@@ -77,6 +77,113 @@ pub fn getVaryingInfo(self: *Workspace, name: []const u8) ?BgfxVaryingInfo {
     };
 }
 
+pub fn varyingDefCompletions(
+    self: *Workspace,
+    arena: std.mem.Allocator,
+    context: VaryingDef.LineContext,
+    prefix: []const u8,
+) ![]lsp.CompletionItem {
+    var items = std.ArrayList(lsp.CompletionItem).init(arena);
+
+    switch (context) {
+        .start, .type_name => {
+            for (self.spec.builtins.varying_qualifiers) |qual| {
+                const matches = prefix.len > 0 and std.mem.startsWith(u8, qual.name, prefix);
+                if (prefix.len == 0 or matches) {
+                    try items.append(.{
+                        .label = qual.name,
+                        .kind = .keyword,
+                        .detail = qual.category,
+                        .documentation = if (qual.description) |desc|
+                            lsp.MarkupContent{ .kind = .markdown, .value = desc }
+                        else
+                            null,
+                        .sortText = if (matches or prefix.len == 0) "0" else "1",
+                    });
+                } else {
+                    try items.append(.{
+                        .label = qual.name,
+                        .kind = .keyword,
+                        .detail = qual.category,
+                        .documentation = if (qual.description) |desc|
+                            lsp.MarkupContent{ .kind = .markdown, .value = desc }
+                        else
+                            null,
+                        .sortText = "1",
+                    });
+                }
+            }
+            for (self.spec.builtins.varying_types) |vtype| {
+                const matches = prefix.len > 0 and std.mem.startsWith(u8, vtype.name, prefix);
+                if (prefix.len == 0 or matches) {
+                    try items.append(.{
+                        .label = vtype.name,
+                        .kind = .class,
+                        .documentation = if (vtype.description) |desc|
+                            lsp.MarkupContent{ .kind = .markdown, .value = desc }
+                        else
+                            null,
+                        .sortText = if (matches or prefix.len == 0) "0" else "1",
+                    });
+                } else {
+                    try items.append(.{
+                        .label = vtype.name,
+                        .kind = .class,
+                        .documentation = if (vtype.description) |desc|
+                            lsp.MarkupContent{ .kind = .markdown, .value = desc }
+                        else
+                            null,
+                        .sortText = "1",
+                    });
+                }
+            }
+        },
+        .after_colon => {
+            for (self.spec.builtins.varying_semantics) |semantic| {
+                const matches = prefix.len > 0 and std.mem.startsWith(u8, semantic.name, prefix);
+                if (prefix.len == 0 or matches) {
+                    var detail = std.ArrayList(u8).init(arena);
+                    if (semantic.type_hint) |hint| {
+                        try detail.writer().print("{s} : {s}", .{ hint, semantic.name });
+                    } else {
+                        try detail.appendSlice(semantic.name);
+                    }
+                    try items.append(.{
+                        .label = semantic.name,
+                        .kind = .enum_member,
+                        .detail = detail.items,
+                        .documentation = if (semantic.description) |desc|
+                            lsp.MarkupContent{ .kind = .markdown, .value = desc }
+                        else
+                            null,
+                        .sortText = if (matches or prefix.len == 0) "0" else "1",
+                    });
+                } else {
+                    var detail = std.ArrayList(u8).init(arena);
+                    if (semantic.type_hint) |hint| {
+                        try detail.writer().print("{s} : {s}", .{ hint, semantic.name });
+                    } else {
+                        try detail.appendSlice(semantic.name);
+                    }
+                    try items.append(.{
+                        .label = semantic.name,
+                        .kind = .enum_member,
+                        .detail = detail.items,
+                        .documentation = if (semantic.description) |desc|
+                            lsp.MarkupContent{ .kind = .markdown, .value = desc }
+                        else
+                            null,
+                        .sortText = "1",
+                    });
+                }
+            }
+        },
+        .after_type, .after_equals, .comment_or_empty => {},
+    }
+
+    return items.items;
+}
+
 pub fn deinit(self: *Workspace) void {
     var entries = self.documents.iterator();
     while (entries.next()) |entry| {

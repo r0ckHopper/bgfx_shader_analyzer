@@ -12,6 +12,7 @@ const Workspace = @import("Workspace.zig");
 const cli = @import("cli.zig");
 const analysis = @import("analysis.zig");
 const parse = @import("parse.zig");
+const VaryingDef = @import("VaryingDef.zig").VaryingDef;
 
 pub const std_options: std.Options = .{
     .log_level = .debug,
@@ -452,6 +453,10 @@ pub const Dispatch = struct {
         });
     }
 
+    fn isVaryingDef(uri: []const u8) bool {
+        return std.mem.endsWith(u8, uri, "varying.def.sc");
+    }
+
     fn getDocumentOrFail(
         state: *State,
         request: *Request,
@@ -495,7 +500,7 @@ pub const Dispatch = struct {
         try state.success(request.id, .{
             .capabilities = .{
                 .completionProvider = .{
-                    .triggerCharacters = .{"."},
+                    .triggerCharacters = &.{ ".", ":" },
                 },
                 .textDocumentSync = .{
                     .openClose = true,
@@ -641,17 +646,55 @@ pub const Dispatch = struct {
 
         const document = try getDocumentOrFail(state, request, params.value.textDocument);
 
-        var completions = std.ArrayList(lsp.CompletionItem).init(state.allocator);
-        defer completions.deinit();
-
         var symbol_arena = std.heap.ArenaAllocator.init(state.allocator);
         defer symbol_arena.deinit();
+
+        if (isVaryingDef(params.value.textDocument.uri)) {
+            const source = document.source();
+            const line_start = blk: {
+                var pos: usize = 0;
+                var remaining = params.value.position.line;
+                while (remaining > 0 and pos < source.len) : (pos += 1) {
+                    if (source[pos] == '\n') remaining -= 1;
+                }
+                break :blk pos;
+            };
+            const line_end = if (std.mem.indexOfScalarPos(u8, source, line_start, '\n')) |e| e else source.len;
+            const line = source[line_start..line_end];
+
+            const cursor_byte = document.utf8FromPosition(params.value.position);
+            const cursor_in_line: u32 = if (cursor_byte >= line_start and cursor_byte <= line_end)
+                @intCast(cursor_byte - line_start)
+            else
+                @intCast(line.len);
+
+            const context = VaryingDef.parseLineContext(line, cursor_in_line);
+
+            const prefix_start = blk2: {
+                var p = cursor_in_line;
+                while (p > 0 and (std.ascii.isAlphanumeric(line[p - 1]) or line[p - 1] == '_')) {
+                    p -= 1;
+                }
+                break :blk2 p;
+            };
+            const prefix = line[prefix_start..cursor_in_line];
+
+            const items = try state.workspace.varyingDefCompletions(
+                symbol_arena.allocator(),
+                context,
+                prefix,
+            );
+            try state.success(request.id, items);
+            return;
+        }
+
+        var completions = std.ArrayList(lsp.CompletionItem).init(state.allocator);
+        defer completions.deinit();
 
         const token = try document.tokenBeforeCursor(params.value.position);
 
         const parsed = try document.parseTree();
         if (token != null and parsed.tree.tag(token.?) == .comment) {
-            // don't give completions in comments
             return state.success(request.id, null);
         }
 

@@ -1164,6 +1164,51 @@ test "varying.def.sc lookup from workspace" {
     try std.testing.expect(workspace.getVaryingInfo("nonexistent") == null);
 }
 
+test "varying.def.sc context-aware completion contexts" {
+    const VaryingDef = @import("VaryingDef.zig").VaryingDef;
+
+    try std.testing.expect(VaryingDef.parseLineContext("", 0) == .start);
+    try std.testing.expect(VaryingDef.parseLineContext("// comment", 0) == .comment_or_empty);
+
+    try std.testing.expect(VaryingDef.parseLineContext("vec3 a_pos : POSITION;", 0) == .type_name);
+    try std.testing.expect(VaryingDef.parseLineContext("vec3 a_pos : POSITION;", 3) == .type_name);
+    try std.testing.expect(VaryingDef.parseLineContext("vec3 a_pos : POSITION;", 8) == .after_type);
+    try std.testing.expect(VaryingDef.parseLineContext("vec3 a_pos : POSITION;", 15) == .after_colon);
+    try std.testing.expect(VaryingDef.parseLineContext("vec3 a_pos : POSITION;", 20) == .after_colon);
+
+    try std.testing.expect(VaryingDef.parseLineContext("highp flat vec3 v_n : NORMAL;", 0) == .start);
+    try std.testing.expect(VaryingDef.parseLineContext("highp flat vec3 v_n : NORMAL;", 6) == .start);
+    try std.testing.expect(VaryingDef.parseLineContext("highp flat vec3 v_n : NORMAL;", 11) == .type_name);
+    try std.testing.expect(VaryingDef.parseLineContext("highp flat vec3 v_n : NORMAL;", 13) == .type_name);
+    try std.testing.expect(VaryingDef.parseLineContext("highp flat vec3 v_n : NORMAL;", 22) == .after_colon);
+
+    try std.testing.expect(VaryingDef.parseLineContext("vec4 v_c : COLOR0 = vec4(1.0);", 22) == .after_equals);
+}
+
+test "varying.def.sc completions return semantics after colon" {
+    var workspace = try Workspace.init(std.testing.allocator);
+    defer workspace.deinit();
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const items = try workspace.varyingDefCompletions(
+        arena.allocator(),
+        .after_colon,
+        "",
+    );
+    try std.testing.expect(items.len > 0);
+
+    var found_position = false;
+    for (items) |item| {
+        if (std.mem.eql(u8, item.label, "POSITION")) {
+            found_position = true;
+            try std.testing.expect(item.kind == .enum_member);
+        }
+    }
+    try std.testing.expect(found_position);
+}
+
 test {
     std.testing.refAllDeclsRecursive(@This());
 }

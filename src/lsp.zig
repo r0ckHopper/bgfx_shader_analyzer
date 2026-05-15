@@ -119,6 +119,7 @@ pub const CompletionItem = struct {
     kind: ?Kind = null,
     detail: ?[]const u8 = null,
     documentation: ?MarkupContent = null,
+    sortText: ?[]const u8 = null,
 
     pub const Kind = enum(u8) {
         pub const jsonStringify = util.JsonEnumAsIntMixin(@This()).jsonStringify;

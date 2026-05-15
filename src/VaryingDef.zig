@@ -33,6 +33,88 @@ pub const VaryingDef = struct {
         allocator.free(self.entries);
     }
 
+    pub const LineContext = enum {
+        start,
+        type_name,
+        after_type,
+        after_colon,
+        after_equals,
+        comment_or_empty,
+    };
+
+    pub fn parseLineContext(line: []const u8, cursor_byte_offset: u32) LineContext {
+        const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
+
+        if (std.mem.startsWith(u8, trimmed, "//")) {
+            return .comment_or_empty;
+        }
+        if (trimmed.len == 0) {
+            return .start;
+        }
+
+        var pos: usize = 0;
+        var non_qualifier_count: usize = 0;
+        var seen_colon = false;
+        var seen_equals = false;
+
+        while (pos < line.len) {
+            while (pos < line.len and std.ascii.isWhitespace(line[pos])) pos += 1;
+            if (pos >= line.len) break;
+
+            const tok_start = pos;
+            while (pos < line.len and !std.ascii.isWhitespace(line[pos]) and line[pos] != ':' and line[pos] != '=' and line[pos] != ';') pos += 1;
+            const token = line[tok_start..pos];
+
+            if (token.len == 0) {
+                if (pos < line.len) {
+                    if (line[pos] == ':') {
+                        seen_colon = true;
+                        pos += 1;
+                        while (pos < line.len and std.ascii.isWhitespace(line[pos])) pos += 1;
+                        if (cursor_byte_offset <= pos) return .after_colon;
+                    } else if (line[pos] == '=') {
+                        seen_equals = true;
+                        pos += 1;
+                    } else {
+                        pos += 1;
+                    }
+                }
+                continue;
+            }
+
+            if (isPrecision(token) or isInterpolation(token)) {
+                if (cursor_byte_offset >= tok_start and cursor_byte_offset <= pos) return .start;
+                while (pos < line.len and std.ascii.isWhitespace(line[pos])) pos += 1;
+                continue;
+            }
+
+            non_qualifier_count += 1;
+
+            if (!seen_colon and !seen_equals) {
+                if (non_qualifier_count == 1 and cursor_byte_offset >= tok_start and cursor_byte_offset <= pos) {
+                    return .type_name;
+                }
+                if (non_qualifier_count == 2 and cursor_byte_offset >= tok_start and cursor_byte_offset <= pos) {
+                    return .after_type;
+                }
+
+                while (pos < line.len and std.ascii.isWhitespace(line[pos])) pos += 1;
+
+                if (pos < line.len and line[pos] == ':') {
+                    seen_colon = true;
+                    pos += 1;
+                    while (pos < line.len and std.ascii.isWhitespace(line[pos])) pos += 1;
+                    if (cursor_byte_offset <= pos) return .after_colon;
+                }
+                continue;
+            }
+        }
+
+        if (seen_equals) return .after_equals;
+        if (seen_colon) return .after_colon;
+        return .start;
+    }
+
     pub fn buildLookup(allocator: std.mem.Allocator, entries: []const Entry) !std.StringHashMapUnmanaged(*const Entry) {
         var map = std.StringHashMapUnmanaged(*const Entry){};
         errdefer map.deinit(allocator);
@@ -259,4 +341,35 @@ test "buildLookup from entries" {
     try std.testing.expectEqualStrings("TEXCOORD0", tc_entry.semantic);
 
     try std.testing.expect(lookup.get("nonexistent") == null);
+}
+
+test "parseLineContext: start position" {
+    const line = "vec3 a_position : POSITION;";
+    try std.testing.expect(VaryingDef.parseLineContext(line, 0) == .type_name);
+}
+
+test "parseLineContext: type_name position" {
+    const line = "vec3 a_position : POSITION;";
+    try std.testing.expect(VaryingDef.parseLineContext(line, 2) == .type_name);
+    try std.testing.expect(VaryingDef.parseLineContext(line, 4) == .type_name);
+}
+
+test "parseLineContext: after_colon position" {
+    const line = "vec3 a_position : POSITION;";
+    try std.testing.expect(VaryingDef.parseLineContext(line, 19) == .after_colon);
+    try std.testing.expect(VaryingDef.parseLineContext(line, 22) == .after_colon);
+}
+
+test "parseLineContext: with qualifiers" {
+    const line = "highp flat vec3 v_normal : NORMAL;";
+    try std.testing.expect(VaryingDef.parseLineContext(line, 0) == .start);
+    try std.testing.expect(VaryingDef.parseLineContext(line, 6) == .start);
+    try std.testing.expect(VaryingDef.parseLineContext(line, 13) == .type_name);
+    try std.testing.expect(VaryingDef.parseLineContext(line, 30) == .after_colon);
+}
+
+test "parseLineContext: empty and comment" {
+    try std.testing.expect(VaryingDef.parseLineContext("", 0) == .start);
+    try std.testing.expect(VaryingDef.parseLineContext("  ", 0) == .start);
+    try std.testing.expect(VaryingDef.parseLineContext("// comment", 0) == .comment_or_empty);
 }
