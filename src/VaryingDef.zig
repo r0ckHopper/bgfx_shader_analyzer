@@ -13,7 +13,7 @@ pub const VaryingDef = struct {
     };
 
     pub fn parse(allocator: std.mem.Allocator, source: []const u8) !VaryingDef {
-        var entries = std.ArrayList(Entry).init(allocator);
+        var entries = std.array_list.Managed(Entry).init(allocator);
         errdefer entries.deinit();
 
         var lines = std.mem.splitScalar(u8, source, '\n');

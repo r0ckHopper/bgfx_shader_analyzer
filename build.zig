@@ -22,17 +22,15 @@ pub fn build(b: *std.Build) !void {
 
     // Tests
     {
-        const test_mod = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        try attachImports(test_mod);
-
         const unit_tests = b.addTest(.{
             .name = "unit-tests",
-            .root_module = test_mod,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/main.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
         });
+        try attachModules(unit_tests);
 
         if (b.option(bool, "install-tests", "Install the unit tests in the `bin` folder") orelse false) {
             b.installArtifact(unit_tests);
@@ -77,26 +75,23 @@ fn addExecutable(b: *std.Build, options: struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 }) !*std.Build.Step.Compile {
-    const mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = options.target,
-        .optimize = options.optimize,
-        .link_libc = true,
-    });
-    try attachImports(mod);
-
     const exe = b.addExecutable(.{
         .name = "bgfx_shader_analyzer",
-        .root_module = mod,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = options.target,
+            .optimize = options.optimize,
+            .link_libc = true,
+        }),
     });
+    try attachModules(exe);
     return exe;
 }
 
-fn attachImports(mod: *std.Build.Module) !void {
-    const b = mod.owner;
+fn attachModules(step: *std.Build.Step.Compile) !void {
+    const b = step.step.owner;
 
-    const compressed_spec = try CompressStep.create(b, "bgfx_spec.json.zlib", b.path("spec/bgfx_spec.json"));
-    mod.addAnonymousImport("bgfx_spec.json.zlib", .{ .root_source_file = compressed_spec.getOutput() });
+    step.root_module.addAnonymousImport("bgfx_spec.json", .{ .root_source_file = b.path("spec/bgfx_spec.json") });
 
     const options = b.addOptions();
     const build_root_path = try std.fs.path.resolve(
@@ -105,72 +100,5 @@ fn attachImports(mod: *std.Build.Module) !void {
     );
     options.addOption([]const u8, "build_root", build_root_path);
     options.addOption([]const u8, "version", b.run(&.{ "git", "describe", "--tags", "--always" }));
-    mod.addOptions("build_options", options);
+    step.root_module.addOptions("build_options", options);
 }
-
-const CompressStep = struct {
-    step: std.Build.Step,
-    generated_file: std.Build.GeneratedFile,
-    input: std.Build.LazyPath,
-
-    pub fn create(b: *std.Build, name: []const u8, path: std.Build.LazyPath) !*@This() {
-        const self = try b.allocator.create(@This());
-        self.* = .{
-            .step = std.Build.Step.init(.{
-                .id = .custom,
-                .name = name,
-                .owner = b,
-                .makeFn = &make,
-            }),
-            .generated_file = .{ .step = &self.step },
-            .input = path,
-        };
-        path.addStepDependencies(&self.step);
-        return self;
-    }
-
-    pub fn getOutput(self: *@This()) std.Build.LazyPath {
-        return .{ .generated = .{ .file = &self.generated_file } };
-    }
-
-    fn make(step: *std.Build.Step, _: std.Build.Step.MakeOptions) anyerror!void {
-        const b = step.owner;
-        const self: *@This() = @fieldParentPtr("step", step);
-        const input_path = self.input.getPath(b);
-
-        var man = b.graph.cache.obtain();
-        defer man.deinit();
-
-        man.hash.add(@as(u32, 0x00000002));
-        const input_index = try man.addFile(input_path, 16 << 20);
-
-        const is_hit = try step.cacheHit(&man);
-
-        const digest = man.final();
-
-        const output_path = try b.cache_root.join(b.allocator, &.{ "o", &digest, step.name });
-        self.generated_file.path = output_path;
-
-        if (is_hit) return;
-
-        const input_contents = man.files.keys()[input_index].contents.?;
-
-        if (std.fs.path.dirname(output_path)) |dir| try b.cache_root.handle.makePath(dir);
-        var output_file = b.cache_root.handle.createFile(output_path, .{}) catch |err| {
-            std.log.err("could not open {s}: {s}", .{ output_path, @errorName(err) });
-            return err;
-        };
-        defer output_file.close();
-
-        var list = std.ArrayList(u8).init(b.allocator);
-        defer list.deinit();
-        {
-            var compress_stream = try std.compress.zlib.compressor(list.writer(), .{});
-            try compress_stream.writer().writeAll(input_contents);
-            try compress_stream.finish();
-        }
-        try output_file.writeAll(list.items);
-
-        try step.writeManifest(&man);
-    }
-};

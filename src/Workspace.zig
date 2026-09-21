@@ -25,7 +25,7 @@ varying_source: []const u8 = &.{},
 varying_entries: []const VaryingDef.Entry = &.{},
 
 /// Documents in the workspace, accessed by their path.
-documents: std.StringHashMapUnmanaged(*Document) = .{},
+documents: std.StringHashMapUnmanaged(*Document) = .empty,
 
 pub fn init(allocator: std.mem.Allocator) !@This() {
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -42,7 +42,7 @@ pub fn init(allocator: std.mem.Allocator) !@This() {
     };
 }
 
-pub fn loadVaryingDef(self: *@This(), path: []const u8) !void {
+pub fn loadVaryingDef(self: *@This(), io: std.Io, path: []const u8) !void {
     {
         var it = self.varying_lookup.keyIterator();
         while (it.next()) |key| self.allocator.free(key.*);
@@ -54,11 +54,11 @@ pub fn loadVaryingDef(self: *@This(), path: []const u8) !void {
     self.varying_source = &.{};
     self.varying_entries = &.{};
 
-    const file = try std.fs.openFileAbsolute(path, .{});
-    defer file.close();
+    const file = try std.Io.Dir.openDirAbsolute(io, path, .{});
+    defer file.close(io);
 
-    const max_megabytes = 1;
-    const contents = try file.reader().readAllAlloc(self.allocator, max_megabytes << 20);
+    const limit: std.Io.Limit = std.Io.Limit.limited(2);
+    const contents = try file.readFileAlloc(io, path, self.allocator, limit);
 
     const varying_def = try VaryingDef.parse(self.allocator, contents);
     self.varying_lookup = try VaryingDef.buildLookup(self.allocator, varying_def.entries);
@@ -83,7 +83,8 @@ pub fn varyingDefCompletions(
     context: VaryingDef.LineContext,
     prefix: []const u8,
 ) ![]lsp.CompletionItem {
-    var items = std.ArrayList(lsp.CompletionItem).init(arena);
+    var items = std.array_list.Managed(lsp.CompletionItem).init(arena);
+    //var items = std.ArrayList(lsp.CompletionItem).init(arena);
 
     switch (context) {
         .start, .type_name => {
@@ -142,9 +143,9 @@ pub fn varyingDefCompletions(
             for (self.spec.builtins.varying_semantics) |semantic| {
                 const matches = prefix.len > 0 and std.mem.startsWith(u8, semantic.name, prefix);
                 if (prefix.len == 0 or matches) {
-                    var detail = std.ArrayList(u8).init(arena);
+                    var detail = std.array_list.Managed(u8).init(arena);
                     if (semantic.type_hint) |hint| {
-                        try detail.writer().print("{s} : {s}", .{ hint, semantic.name });
+                        try detail.print("{s} : {s}", .{ hint, semantic.name });
                     } else {
                         try detail.appendSlice(semantic.name);
                     }
@@ -159,9 +160,9 @@ pub fn varyingDefCompletions(
                         .sortText = if (matches or prefix.len == 0) "0" else "1",
                     });
                 } else {
-                    var detail = std.ArrayList(u8).init(arena);
+                    var detail = std.array_list.Managed(u8).init(arena);
                     if (semantic.type_hint) |hint| {
-                        try detail.writer().print("{s} : {s}", .{ hint, semantic.name });
+                        try detail.print("{s} : {s}", .{ hint, semantic.name });
                     } else {
                         try detail.appendSlice(semantic.name);
                     }
@@ -243,6 +244,7 @@ pub fn getOrCreateDocument(
 
 pub fn getOrLoadDocument(
     self: *Workspace,
+    io: std.Io,
     document: lsp.TextDocumentIdentifier,
 ) !*Document {
     const path = try util.pathFromUri(self.allocator, document.uri);
@@ -255,7 +257,7 @@ pub fn getOrLoadDocument(
         errdefer self.documents.removeByPtr(entry.key_ptr);
 
         const max_megabytes = 16;
-        const contents = try std.fs.cwd().readFileAlloc(self.allocator, path, max_megabytes << 20);
+        const contents = try std.Io.Dir.cwd().readFileAlloc(io, path, self.allocator, .limited(max_megabytes << 20));
         errdefer self.allocator.free(contents);
 
         const new_document = try self.allocator.create(Document);
@@ -278,7 +280,7 @@ pub fn getOrLoadDocument(
 }
 
 fn builtinCompletions(arena: std.mem.Allocator, spec: *const Spec) ![]lsp.CompletionItem {
-    var completions = std.ArrayList(lsp.CompletionItem).init(arena);
+    var completions = std.array_list.Managed(lsp.CompletionItem).init(arena);
 
     try completions.ensureUnusedCapacity(
         spec.types.len + spec.variables.len + spec.functions.len,
@@ -318,93 +320,93 @@ fn builtinCompletions(arena: std.mem.Allocator, spec: *const Spec) ![]lsp.Comple
     }
 
     for (spec.variables) |variable| {
-        var anonymous_signature = std.ArrayList(u8).init(arena);
-        try writeVariableSignature(variable, anonymous_signature.writer(), .{ .names = false });
+        var anonymous_signature: std.Io.Writer.Allocating = .init(arena);
+        try writeVariableSignature(variable, &anonymous_signature.writer, .{ .names = false });
 
-        var named_signature = std.ArrayList(u8).init(arena);
-        try writeVariableSignature(variable, named_signature.writer(), .{ .names = true });
+        var named_signature: std.Io.Writer.Allocating = .init(arena);
+        try writeVariableSignature(variable, &named_signature.writer, .{ .names = true });
 
         try completions.append(.{
             .label = variable.name,
-            .labelDetails = .{ .detail = anonymous_signature.items },
-            .detail = named_signature.items,
+            .labelDetails = .{ .detail = anonymous_signature.written() },
+            .detail = named_signature.written(),
             .kind = .variable,
             .documentation = try itemDocumentation(arena, variable),
         });
     }
 
     for (spec.functions) |function| {
-        var anonymous_signature = std.ArrayList(u8).init(arena);
-        try writeFunctionSignature(function, anonymous_signature.writer(), .{ .names = false });
+        var anonymous_signature: std.Io.Writer.Allocating = .init(arena);
+        try writeFunctionSignature(function, &anonymous_signature.writer, .{ .names = false });
 
-        var named_signature = std.ArrayList(u8).init(arena);
-        try writeFunctionSignature(function, named_signature.writer(), .{ .names = true });
+        var named_signature: std.Io.Writer.Allocating = .init(arena);
+        try writeFunctionSignature(function, &named_signature.writer, .{ .names = true });
 
         try completions.append(.{
             .label = function.name,
-            .labelDetails = .{ .detail = anonymous_signature.items },
+            .labelDetails = .{ .detail = anonymous_signature.written() },
             .kind = .function,
-            .detail = named_signature.items,
+            .detail = named_signature.written(),
             .documentation = try itemDocumentation(arena, function),
         });
     }
 
-    for (spec.builtins.uniforms) |uniform| {
-        var sig = std.ArrayList(u8).init(arena);
-        try sig.writer().print("uniform {s} {s}", .{ uniform.type, uniform.name });
+    for (spec.builtins.uniforms) |uniform| {//dedicate a function for these aswell? 
+        var sig: std.Io.Writer.Allocating = .init(arena);
+        try sig.writer.print("uniform {s} {s}", .{ uniform.type, uniform.name });
         try completions.append(.{
             .label = uniform.name,
             .kind = .variable,
-            .detail = sig.items,
+            .detail = sig.written(),
             .documentation = if (uniform.description) |desc| lsp.MarkupContent{ .kind = .markdown, .value = desc } else null,
         });
     }
 
     for (spec.macros) |macro| {
-        var detail = std.ArrayList(u8).init(arena);
+        var detail: std.Io.Writer.Allocating = .init(arena);
         if (macro.params.len > 0) {
             var i: usize = 1;
             for (macro.params) |param| {
-                if (i > 1) try detail.appendSlice(", ");
-                try detail.writer().print("${{{d}:{s}}}", .{ i, param });
+                if (i > 1) try detail.writer.writeAll(", ");
+                try detail.writer.print("${{{d}:{s}}}", .{ i, param });
                 i += 1;
             }
         }
         try completions.append(.{
             .label = macro.name,
             .kind = .function,
-            .detail = detail.items,
+            .detail = detail.written(),
             .documentation = if (macro.description) |desc| lsp.MarkupContent{ .kind = .markdown, .value = desc } else null,
         });
     }
 
     for (spec.bgfx_functions) |func| {
-        var sig = std.ArrayList(u8).init(arena);
-        try sig.writer().print("{s} {s}(", .{ func.return_type, func.name });
+        var sig: std.Io.Writer.Allocating = .init(arena);
+        try sig.writer.print("{s} {s}(", .{ func.return_type, func.name });
         for (func.parameters, 0..) |param, i| {
-            if (i != 0) try sig.appendSlice(", ");
-            try sig.writer().print("{s} {s}", .{ param.type, param.name });
+            if (i != 0) try sig.writer.writeAll(", ");
+            try sig.writer.print("{s} {s}", .{ param.type, param.name });
         }
-        try sig.appendSlice(")");
+        try sig.writer.writeAll(")");
         try completions.append(.{
             .label = func.name,
             .kind = .function,
-            .detail = sig.items,
+            .detail = sig.written(),
             .documentation = if (func.description) |desc| lsp.MarkupContent{ .kind = .markdown, .value = desc } else null,
         });
     }
 
     for (spec.builtins.varying_semantics) |semantic| {
-        var sig = std.ArrayList(u8).init(arena);
+        var sig: std.Io.Writer.Allocating = .init(arena);
         if (semantic.type_hint) |hint| {
-            try sig.writer().print("{s} : {s}", .{ hint, semantic.name });
+            try sig.writer.print("{s} : {s}", .{ hint, semantic.name });
         } else {
-            try sig.appendSlice(semantic.name);
+            try sig.writer.writeAll(semantic.name);
         }
         try completions.append(.{
             .label = semantic.name,
             .kind = .enum_member,
-            .detail = sig.items,
+            .detail = sig.written(),
             .documentation = if (semantic.description) |desc| lsp.MarkupContent{ .kind = .markdown, .value = desc } else null,
         });
     }
@@ -413,19 +415,19 @@ fn builtinCompletions(arena: std.mem.Allocator, spec: *const Spec) ![]lsp.Comple
 }
 
 fn itemDocumentation(arena: std.mem.Allocator, item: anytype) !lsp.MarkupContent {
-    var documentation = std.ArrayList(u8).init(arena);
+    var documentation: std.Io.Writer.Allocating = .init(arena);
 
     for (item.description orelse &.{}) |paragraph| {
-        try documentation.appendSlice(paragraph);
-        try documentation.appendSlice("\n\n");
+        try documentation.writer.writeAll(paragraph);
+        try documentation.writer.writeAll("\n\n");
     }
 
     if (item.extensions) |extensions| {
-        try documentation.appendSlice("```glsl\n");
+        try documentation.writer.writeAll("```glsl\n");
         for (extensions) |extension| {
-            try documentation.writer().print("#extension {s} : enable\n", .{extension});
+            try documentation.writer.print("#extension {s} : enable\n", .{extension});
         }
-        try documentation.appendSlice("```\n");
+        try documentation.writer.writeAll("```\n");
     }
 
     return .{ .kind = .markdown, .value = try documentation.toOwnedSlice() };
@@ -437,7 +439,7 @@ fn writeVariableSignature(
     options: struct { names: bool },
 ) !void {
     if (!std.meta.eql(variable.modifiers, .{ .in = true })) {
-        try writer.print("{}", .{variable.modifiers});
+        try writer.print("{f}", .{variable.modifiers});
         try writer.writeAll(" ");
     }
 
@@ -469,7 +471,7 @@ fn writeFunctionSignature(
         if (i != 0) try writer.writeAll(", ");
         if (param.optional) try writer.writeAll("[");
         if (param.modifiers) |modifiers| {
-            try writer.print("{}", .{modifiers});
+            try writer.print("{f}", .{modifiers});
             try writer.writeAll(" ");
         }
         if (options.names) {
