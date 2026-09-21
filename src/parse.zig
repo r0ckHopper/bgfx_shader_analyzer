@@ -2004,9 +2004,9 @@ test "parse bgfx vertex shader" {
         \\    gl_Position = vec4(a_position, 1.0);
         \\}
     ;
-    var diagnostics = std.ArrayList(Diagnostic).init(std.testing.allocator);
+    var diagnostics = std.array_list.Managed(Diagnostic).init(std.testing.allocator);
     defer diagnostics.deinit();
-    var ignored = std.ArrayList(Span).init(std.testing.allocator);
+    var ignored = std.array_list.Managed(Span).init(std.testing.allocator);
     defer ignored.deinit();
 
     var tree = try parse(std.testing.allocator, source, .{
@@ -2041,9 +2041,9 @@ test "parse bgfx compute shader with NUM_THREADS" {
         \\{
         \\}
     ;
-    var diagnostics = std.ArrayList(Diagnostic).init(std.testing.allocator);
+    var diagnostics = std.array_list.Managed(Diagnostic).init(std.testing.allocator);
     defer diagnostics.deinit();
-    var ignored = std.ArrayList(Span).init(std.testing.allocator);
+    var ignored = std.array_list.Managed(Span).init(std.testing.allocator);
     defer ignored.deinit();
 
     var tree = try parse(std.testing.allocator, source, .{
