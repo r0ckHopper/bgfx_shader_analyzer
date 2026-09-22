@@ -1,12 +1,7 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) !void {
-    const target = b.standardTargetOptions(.{
-        .default_target = .{
-            .abi = .gnu,
-            .glibc_version = .{ .major = 2, .minor = 38, .patch = 0 },
-        },
-        });
+    const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
     // Executable
@@ -89,7 +84,6 @@ fn addExecutable(b: *std.Build, options: struct {
             .link_libc = true,
         }),
     });
-    exe.root_module.addLibraryPath(.{ .cwd_relative = "/usr/lib" });
     try attachModules(exe);
     return exe;
 }
