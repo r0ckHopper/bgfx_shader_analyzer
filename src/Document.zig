@@ -12,7 +12,7 @@ path: []const u8,
 version: ?i64,
 
 /// The raw bytes of the file (utf-8)
-contents: std.ArrayListUnmanaged(u8) = .{},
+contents: std.ArrayListUnmanaged(u8) = .empty,
 
 /// Parse tree of the document (computed on-demand)
 parse_tree: ?CompleteParseTree = null,
@@ -152,9 +152,9 @@ pub const CompleteParseTree = struct {
         var arena = std.heap.ArenaAllocator.init(parent_allocator);
         errdefer arena.deinit();
 
-        var diagnostics = std.ArrayList(parse.Diagnostic).init(arena.allocator());
+        var diagnostics = std.array_list.Managed(parse.Diagnostic).init(arena.allocator());
 
-        var ignored = std.ArrayList(parse.Token).init(parent_allocator);
+        var ignored = std.array_list.Managed(parse.Token).init(parent_allocator);
         defer ignored.deinit();
 
         const tree = try parse.parse(arena.allocator(), text, .{
@@ -162,7 +162,7 @@ pub const CompleteParseTree = struct {
             .diagnostics = &diagnostics,
         });
 
-        var extensions = std.ArrayList([]const u8).init(arena.allocator());
+        var extensions = std.array_list.Managed([]const u8).init(arena.allocator());
         errdefer extensions.deinit();
 
         for (ignored.items) |token| {

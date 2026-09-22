@@ -215,22 +215,33 @@ pub fn Extractor(comptime expected_tag: Tag, comptime T: type) type {
             };
         }
 
-        const MatchFields = @Type(.{
-            .@"struct" = .{
-                .layout = .auto,
-                .fields = blk: {
-                    var match_fields: [fields.len]std.builtin.Type.StructField = undefined;
-                    for (&match_fields, fields) |*match_field, field| {
-                        match_field.* = field;
-                        match_field.type = Match(field.type);
-                        match_field.default_value_ptr = &@as(match_field.type, .{});
-                    }
-                    break :blk &match_fields;
-                },
-                .decls = &.{},
-                .is_tuple = false,
+        const MatchFields = @Struct(
+            .auto,
+            null,
+            names: {
+                var names: [fields.len][]const u8 = undefined;
+                for (&names, fields) |*name, field|
+                    name.* = field.name;
+
+                break :names &names;
             },
-        });
+            types: {
+                var types: [fields.len]type = undefined;
+                for (&types, fields) |*match_type, field|
+                    match_type.* = Match(field.type);
+
+                break :types &types;
+            },
+            attrs: {
+                var attrs: [fields.len]std.builtin.Type.StructField.Attributes = undefined;
+                for (&attrs, fields) |*attr, field|
+                    attr.* = .{
+                        .default_value_ptr = &@as(Match(field.type), .{}),
+                    };
+
+                break :attrs &attrs;
+            },
+        );
 
         node: u32,
         matches: MatchFields,
@@ -271,11 +282,11 @@ pub fn Extractor(comptime expected_tag: Tag, comptime T: type) type {
             return tree.children(self.node).start + node_offset;
         }
 
-        pub fn get(self: @This(), comptime field: FieldEnum, tree: Tree) ?std.meta.FieldType(T, field) {
+        pub fn get(self: @This(), comptime field: FieldEnum, tree: Tree) ?@FieldType(T, @tagName(field)) {
             const field_match = @field(self.matches, @tagName(field));
             const node_offset = field_match.node_offset orelse return null;
             const node = tree.children(self.node).start + node_offset;
-            return MixinType(std.meta.FieldType(T, field)).extract(tree, node, field_match.result);
+            return MixinType(@FieldType(T, @tagName(field))).extract(tree, node, field_match.result);
         }
     };
 }
@@ -376,26 +387,33 @@ pub fn UnionExtractorMixin(comptime Self: type) type {
     const fields = std.meta.fields(Self);
 
     return struct {
-        const MatchUnion = @Type(.{
-            .@"union" = .{
-                .layout = .auto,
-                .fields = blk: {
-                    var match_fields: [fields.len]std.builtin.Type.UnionField = undefined;
+        const MatchUnion = @Union(
+            .auto,
+            std.meta.Tag(Self),
+            names: {
+                var names: [fields.len][]const u8 = undefined;
+                for (&names, fields) |*name, field|
+                    name.* = field.name;
 
-                    for (&match_fields, fields) |*match_field, field| {
-                        match_field.* = .{
-                            .name = field.name,
-                            .type = MatchResult(field.type),
-                            .alignment = 0,
-                        };
-                    }
-
-                    break :blk &match_fields;
-                },
-                .tag_type = std.meta.Tag(Self),
-                .decls = &.{},
+                break :names &names;
             },
-        });
+            types: {
+                var types: [fields.len]type = undefined;
+                for (&types, fields) |*match_type, field|
+                    match_type.* = MatchResult(field.type);
+
+                break :types &types;
+            },
+            attrs: {
+                var attrs: [fields.len]std.builtin.Type.UnionField.Attributes = undefined;
+                for (&attrs, fields) |*attr, field|
+                    attr.* = .{
+                        .@"align" = @alignOf(MatchResult(field.type)),
+                    };
+
+                break :attrs &attrs;
+            },
+        );
 
         pub fn match(tree: Tree, node: u32) ?MatchUnion {
             inline for (fields) |field| {
@@ -515,5 +533,5 @@ pub fn MixinType(comptime T: type) type {
 }
 
 test {
-    std.testing.refAllDeclsRecursive(@This());
+    std.testing.refAllDecls(@This());
 }

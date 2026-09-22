@@ -25,7 +25,7 @@ pub const Operator = struct {
     pub const Kind = enum { prefix, infix, postfix };
 };
 
-pub const Type = struct {
+pub const Type = struct {//look back at this
     name: []const u8,
     description: Description,
 
@@ -123,7 +123,7 @@ pub const Attribute = struct {
     semantic: []const u8,
 };
 
-pub const Macro = struct {
+pub const Macro = struct {//Macro not in Builtins
     name: []const u8,
     params: []const []const u8,
     kind: MacroKind,
@@ -145,16 +145,11 @@ pub const BgfxFunction = struct {
     };
 };
 
-const compressed_bytes = @embedFile("bgfx_spec.json.zlib");
+const spec_bytes = @embedFile("bgfx_spec.json");
 
 pub fn load(allocator: std.mem.Allocator) !@This() {
-    var compressed_stream = std.io.fixedBufferStream(compressed_bytes);
-    var decompress_stream = std.compress.zlib.decompressor(compressed_stream.reader());
-
-    const bytes = try decompress_stream.reader().readAllAlloc(allocator, 16 << 20);
-
     var diagnostic = std.json.Diagnostics{};
-    var scanner = std.json.Scanner.initCompleteInput(allocator, bytes);
+    var scanner = std.json.Scanner.initCompleteInput(allocator, spec_bytes);
     defer scanner.deinit();
     scanner.enableDiagnostics(&diagnostic);
 
@@ -163,7 +158,7 @@ pub fn load(allocator: std.mem.Allocator) !@This() {
             "could not parse bgfx spec: {}:{}: {s}",
             .{ diagnostic.getLine(), diagnostic.getColumn(), @errorName(err) },
         );
-        std.log.err("{?s}", .{util.getJsonErrorContext(diagnostic, bytes)});
+        std.log.err("{s}", .{util.getJsonErrorContext(diagnostic, spec_bytes)});
         return err;
     };
 }
@@ -193,30 +188,34 @@ pub const Modifiers = packed struct(u3) {
         return modifiers;
     }
 
-    const FormatBuffer = std.BoundedArray(u8, blk: {
+    const buffer_len = blk: {
         var max_len: usize = std.meta.fieldNames(@This()).len;
         for (std.meta.fieldNames(@This())) |name| max_len += name.len;
         break :blk max_len;
-    });
+    };
+
+    const FormatBuffer = std.ArrayListUnmanaged(u8);
 
     fn toString(self: @This(), buffer: *FormatBuffer) void {
         inline for (comptime std.meta.fieldNames(@This())) |name| {
             if (@field(self, name)) {
-                if (buffer.len != 0) buffer.appendAssumeCapacity(' ');
+                if (buffer.items.len != 0) buffer.appendAssumeCapacity(' ');
                 buffer.appendSliceAssumeCapacity(name);
             }
         }
     }
 
     pub fn jsonStringify(self: @This(), jw: anytype) !void {
-        var buffer = FormatBuffer{};
-        self.toString(&buffer);
-        try jw.write(buffer.slice());
+        var buffer: [buffer_len]u8 = undefined;
+        var format_buffer = FormatBuffer.initBuffer(&buffer);
+        self.toString(&format_buffer);
+        try jw.write(format_buffer.items);
     }
 
-    pub fn format(self: @This(), _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        var buffer = FormatBuffer{};
-        self.toString(&buffer);
-        try writer.writeAll(buffer.slice());
+    pub fn format(self: @This(), writer: *std.Io.Writer) !void {
+        var buffer: [buffer_len]u8 = undefined;
+        var format_buffer = FormatBuffer.initBuffer(&buffer);
+        self.toString(&format_buffer);
+        try writer.writeAll(format_buffer.items);
     }
 };
